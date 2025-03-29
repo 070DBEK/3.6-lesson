@@ -30,13 +30,16 @@ class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        refresh_token = request.data.get("refresh")
+        if not refresh_token:
+            return Response({"error": "Refresh token talab qilinadi."}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            refresh_token = request.data["refresh"]
             token = RefreshToken(refresh_token)
             token.blacklist()
             return Response({"message": "Chiqish muvaffaqiyatli bajarildi."}, status=status.HTTP_200_OK)
-        except Exception as e:
+        except Exception:
             return Response({"error": "Noto‘g‘ri yoki eskirgan token."}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
@@ -44,7 +47,7 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_object(self):
-        return self.request.user.profile
+        return self.request.user
 
 
 class UserDetailView(generics.RetrieveAPIView):
