@@ -9,7 +9,7 @@ from .views import (
     CategoryPosts,
     TagPosts,
     AuthorPosts,
-    PostLikeToggle,
+    LikePostView,
     PostCommentView,
 )
 
@@ -23,10 +23,10 @@ router.register(r'likes', PostLikeViewSet)
 
 
 urlpatterns = [
-    path('api/', include(router.urls)),
-    path('api/tags/<slug:slug>/posts/', TagPosts.as_view(), name='tag-posts'),
+    path('', include(router.urls)),
+    path('tags/<slug:slug>/posts/', TagPosts.as_view(), name='tag-posts'),
     path('users/<str:username>/posts/', AuthorPosts.as_view(), name='author-posts'),
-    path('posts/<slug:slug>/like/', PostLikeToggle.as_view(), name='post-like-toggle'),
-    path('posts/<slug:slug>/comment/', PostCommentView.as_view(), name='post-comments'),
-    path('api/categories/<slug:slug>/posts/', CategoryPosts.as_view(), name='category-posts'),
+    path('posts/<slug:slug>/like/', LikePostView.as_view(), name='post-like-toggle'),
+    path('posts/<slug:slug>/comments/', PostCommentView.as_view(), name='post-comments'),
+    path('categories/<slug:slug>/posts/', CategoryPosts.as_view(), name='category-posts'),
 ]

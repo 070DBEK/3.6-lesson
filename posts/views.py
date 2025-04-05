@@ -1,11 +1,14 @@
+import logging
 from rest_framework import viewsets
 from rest_framework.views import APIView
 from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
+from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import Post, Comment, PostLike, Tag, Category
+from command.pagination import CustomPagination
 from .serializers import PostSerializer, CommentSerializer, PostLikeSerializer, TagSerializer, CategorySerializer
 from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from .permissions import (
@@ -17,9 +20,17 @@ from .permissions import (
 )
 
 
+class CategoryViewSet(viewsets.ModelViewSet):
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+    pagination_class = CustomPagination
+    lookup_field = 'slug'
+
+
 class PostViewSet(viewsets.ModelViewSet):
     queryset = Post.objects.all()
     serializer_class = PostSerializer
+    lookup_field = 'slug'
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
@@ -58,13 +69,19 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return [IsAdminOnly()]
 
 
-class AuthorPosts(ListAPIView):
+# Set up logging
+logger = logging.getLogger(__name__)
+
+class AuthorPosts(APIView):
     serializer_class = PostSerializer
     permission_classes = [AllowAny]
 
-    def get_queryset(self):
-        user = get_object_or_404(User, username=self.kwargs['username'])
-        return Post.objects.filter(author=user)
+    def get(self, request, username):
+        user = get_object_or_404(User, username=username)
+        posts = Post.objects.filter(author=user)
+        serializer = PostSerializer(posts, many=True)
+        return Response(serializer.data)
+
 
 class CategoryPosts(ListAPIView):
     serializer_class = PostSerializer
@@ -73,6 +90,7 @@ class CategoryPosts(ListAPIView):
     def get_queryset(self):
         category = get_object_or_404(Category, slug=self.kwargs['slug'])
         return Post.objects.filter(category=category)
+
 
 class TagPosts(ListAPIView):
     serializer_class = PostSerializer
@@ -83,19 +101,28 @@ class TagPosts(ListAPIView):
         return Post.objects.filter(tags=tag)
 
 
-class PostLikeToggle(APIView):
+class LikePostView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, slug):
         post = get_object_or_404(Post, slug=slug)
-        user = request.user
-        like = PostLike.objects.filter(post=post, user=user).first()
-        if like:
-            like.delete()
-            return Response({"message": "Like removed"}, status=200)
-        PostLike.objects.create(post=post, user=user)
-        return Response({"message": "Liked"}, status=201)
-
+        value = request.data.get("value")
+        if value not in ["like", "dislike"]:
+            return Response({"error": "Invalid value. Use 'like' or 'dislike'."}, status=400)
+        like, created = PostLike.objects.get_or_create(user=request.user, post=post)
+        if not created:
+            if like.value == value:
+                like.delete()
+                return Response({"message": "Reaction removed"}, status=200)
+            else:
+                like.value = value
+                like.save()
+                serializer = PostLikeSerializer(like)
+                return Response({"message": f"Reaction changed to {value}", "data": serializer.data}, status=200)
+        like.value = value
+        like.save()
+        serializer = PostLikeSerializer(like)
+        return Response({"message": f"{value} added", "data": serializer.data}, status=201)
 
 
 class PostCommentView(APIView):
@@ -104,13 +131,12 @@ class PostCommentView(APIView):
     def get(self, request, slug):
         post = get_object_or_404(Post, slug=slug)
         comments = Comment.objects.filter(post=post)
-        serializer = CommentSerializer(comments, many=True, context={'request': request})
+        serializer = CommentSerializer(comments, many=True)
         return Response(serializer.data)
 
     def post(self, request, slug):
         post = get_object_or_404(Post, slug=slug)
         serializer = CommentSerializer(data=request.data)
-
         if serializer.is_valid():
             serializer.save(post=post, author=request.user)
             return Response(serializer.data, status=201)
