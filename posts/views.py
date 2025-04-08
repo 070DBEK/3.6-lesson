@@ -82,7 +82,11 @@ class ReplyCommentView(APIView):
         parent_comment = get_object_or_404(Comment, id=parent_id)
         serializer = CommentSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(author=request.user, parent=parent_comment)
+            serializer.save(
+                author=request.user,
+                parent=parent_comment,
+                post=parent_comment.post
+            )
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
