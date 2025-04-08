@@ -52,14 +52,7 @@ class PostViewSet(viewsets.ModelViewSet):
 class CommentViewSet(viewsets.ModelViewSet):
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly, IsCommentAuthorOrPostAuthorOrAdmin]
-
-    def perform_create(self, serializer):
-        slug = self.request.data.get('slug', None)
-        parent_id = self.request.data.get('parent', None)
-        post = get_object_or_404(Post, slug=slug) if slug else None
-        parent_comment = get_object_or_404(Comment, id=parent_id) if parent_id else None
-        serializer.save(author=self.request.user, post=post, parent=parent_comment)
+    permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
         queryset = Comment.objects.all()
@@ -68,6 +61,30 @@ class CommentViewSet(viewsets.ModelViewSet):
             post = get_object_or_404(Post, slug=slug)
             queryset = queryset.filter(post=post)
         return queryset
+
+    def perform_create(self, serializer):
+        slug = self.request.data.get('slug', None)
+        parent_id = self.request.data.get('parent', None)
+        if slug:
+            post = get_object_or_404(Post, slug=slug)
+        else:
+            post = None
+        parent_comment = None
+        if parent_id:
+            parent_comment = get_object_or_404(Comment, id=parent_id)
+        serializer.save(author=self.request.user, post=post, parent=parent_comment)
+
+
+class ReplyCommentView(APIView):
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def post(self, request, parent_id):
+        parent_comment = get_object_or_404(Comment, id=parent_id)
+        serializer = CommentSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(author=request.user, parent=parent_comment)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class PostLikeViewSet(viewsets.ModelViewSet):
