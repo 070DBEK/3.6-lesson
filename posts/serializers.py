@@ -93,9 +93,27 @@ class CommentSerializer(serializers.ModelSerializer):
         required=False
     )
 
+    parent = serializers.PrimaryKeyRelatedField(
+        queryset=Comment.objects.all(),
+        required=False,
+        allow_null=True
+    )
+
+    replies = serializers.SerializerMethodField()
+
     class Meta:
         model = Comment
-        fields = ['id', 'post', 'author', 'content', 'created_at', 'slug']
+        fields = ['id', 'post', 'slug', 'author', 'content', 'created_at', 'parent', 'replies']
+
+    def get_replies(self, obj):
+        queryset = obj.replies.all().order_by('created_at')
+        return CommentSerializer(queryset, many=True, context=self.context).data
+
+    def create(self, validated_data):
+        slug = validated_data.pop('slug', None)
+        if slug:
+            validated_data['post'] = slug
+        return super().create(validated_data)
 
 
 class PostLikeSerializer(serializers.ModelSerializer):

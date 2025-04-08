@@ -1,16 +1,18 @@
 import logging
-from rest_framework import viewsets
+from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
-from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAuthenticatedOrReadOnly
+
 from .models import Post, Comment, PostLike, Tag, Category
 from command.pagination import CustomPagination
-from .serializers import PostSerializer, CommentSerializer, PostLikeSerializer, TagSerializer, CategorySerializer
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from .serializers import (
+    PostSerializer, CommentSerializer, PostLikeSerializer,
+    TagSerializer, CategorySerializer
+)
 from .permissions import (
     IsAdminOrReadOnly,
     IsPostAuthorOrAdminOrReadOnly,
@@ -19,12 +21,19 @@ from .permissions import (
     IsAdminOnly
 )
 
+logger = logging.getLogger(__name__)
+
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
-    pagination_class = CustomPagination
     lookup_field = 'slug'
+    pagination_class = CustomPagination
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [AllowAny()]
+        return [IsAdminOnly()]
 
 
 class PostViewSet(viewsets.ModelViewSet):
@@ -43,7 +52,22 @@ class PostViewSet(viewsets.ModelViewSet):
 class CommentViewSet(viewsets.ModelViewSet):
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer
-    permission_classes = [IsAuthenticated, IsCommentAuthorOrPostAuthorOrAdmin]
+    permission_classes = [IsAuthenticatedOrReadOnly, IsCommentAuthorOrPostAuthorOrAdmin]
+
+    def perform_create(self, serializer):
+        slug = self.request.data.get('slug', None)
+        parent_id = self.request.data.get('parent', None)
+        post = get_object_or_404(Post, slug=slug) if slug else None
+        parent_comment = get_object_or_404(Comment, id=parent_id) if parent_id else None
+        serializer.save(author=self.request.user, post=post, parent=parent_comment)
+
+    def get_queryset(self):
+        queryset = Comment.objects.all()
+        slug = self.request.query_params.get('post_slug')
+        if slug:
+            post = get_object_or_404(Post, slug=slug)
+            queryset = queryset.filter(post=post)
+        return queryset
 
 
 class PostLikeViewSet(viewsets.ModelViewSet):
@@ -57,20 +81,6 @@ class TagViewSet(viewsets.ModelViewSet):
     serializer_class = TagSerializer
     permission_classes = [IsAdminOrReadOnly]
 
-
-class CategoryViewSet(viewsets.ModelViewSet):
-    queryset = Category.objects.all()
-    serializer_class = CategorySerializer
-    lookup_field = 'slug'
-
-    def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
-            return [AllowAny()]
-        return [IsAdminOnly()]
-
-
-# Set up logging
-logger = logging.getLogger(__name__)
 
 class AuthorPosts(APIView):
     serializer_class = PostSerializer
@@ -109,35 +119,18 @@ class LikePostView(APIView):
         value = request.data.get("value")
         if value not in ["like", "dislike"]:
             return Response({"error": "Invalid value. Use 'like' or 'dislike'."}, status=400)
+
         like, created = PostLike.objects.get_or_create(user=request.user, post=post)
         if not created:
             if like.value == value:
                 like.delete()
                 return Response({"message": "Reaction removed"}, status=200)
-            else:
-                like.value = value
-                like.save()
-                serializer = PostLikeSerializer(like)
-                return Response({"message": f"Reaction changed to {value}", "data": serializer.data}, status=200)
+            like.value = value
+            like.save()
+            serializer = PostLikeSerializer(like)
+            return Response({"message": f"Reaction changed to {value}", "data": serializer.data}, status=200)
+
         like.value = value
         like.save()
         serializer = PostLikeSerializer(like)
         return Response({"message": f"{value} added", "data": serializer.data}, status=201)
-
-
-class PostCommentView(APIView):
-    permission_classes = [IsAuthenticatedOrReadOnly]
-
-    def get(self, request, slug):
-        post = get_object_or_404(Post, slug=slug)
-        comments = Comment.objects.filter(post=post)
-        serializer = CommentSerializer(comments, many=True)
-        return Response(serializer.data)
-
-    def post(self, request, slug):
-        post = get_object_or_404(Post, slug=slug)
-        serializer = CommentSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save(post=post, author=request.user)
-            return Response(serializer.data, status=201)
-        return Response(serializer.errors, status=400)
