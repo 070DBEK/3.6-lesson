@@ -23,7 +23,7 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         password = validated_data.pop('password')
         user = User.objects.create(**validated_data)
-        user.set_password(password)  # Parolni shifrlash
+        user.set_password(password)
         user.save()
         return user
 
